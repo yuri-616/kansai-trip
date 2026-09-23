@@ -740,10 +740,10 @@
       <div class="view-head">
         <div class="eyebrow">SETTINGS</div>
         <h2>設定</h2>
-        <div class="meta">匯率、備份、分享給旅伴</div>
+        <div class="meta">共用、匯率、備份</div>
       </div>
       <section class="sec">
-        <div class="sec-head"><span class="sec-name">共用旅行房間</span></div>
+        <div class="sec-head"><span class="sec-name">和旅伴一起用（持續同步）</span></div>
         <div class="card"><div class="set-row">
           ${state.room ? `
             <div class="room-box">
@@ -757,12 +757,13 @@
             <p>同房間的人共用行程、清單和記帳。打開 App、切回前景、每 30 秒會自動同步一次；同一筆資料以最後修改的為準。<br>
             要換旅伴就按「換一組新代碼」：舊代碼與舊連結立刻失效，對方之後看不到你的更新（他手機上已經同步過的內容仍在他那裡）。</p>
           ` : `
-            <button class="btn primary" id="s-create">建立共用房間</button>
+            <button class="btn primary" id="s-create">開始和旅伴共用</button>
             <div class="row2" style="margin-top:8px">
-              <div class="field" style="margin:0"><input id="s-code" placeholder="輸入 6 碼代碼" maxlength="6" autocapitalize="characters" autocomplete="off"></div>
+              <div class="field" style="margin:0"><input id="s-code" placeholder="輸入旅伴給的 6 碼" maxlength="6" autocapitalize="characters" autocomplete="off"></div>
               <button class="btn" id="s-join" style="margin:0">加入</button>
             </div>
-            <p>建立房間後把代碼或邀請連結給旅伴，兩邊的行程、清單、記帳就會互通。沒有加入房間時，資料只留在這支手機。</p>
+            <p><b>給同行的旅伴用。</b>兩邊的<b>行程、清單、記帳全部互通</b>，誰新增都看得到，記帳合計是大家加起來的。開始共用後會拿到 6 碼代碼和邀請連結，傳給旅伴即可。<br>
+            沒有共用時，資料只留在這支手機。</p>
           `}
         </div></div>
       </section>
@@ -775,14 +776,15 @@
         </div></div>
       </section>
       <section class="sec">
-      <div class="sec-head"><span class="sec-name">分享給旅伴 / 備份</span></div>
+      <div class="sec-head"><span class="sec-name">傳一份行程給別人（單次）</span></div>
       <div class="card"><div class="set-row">
-        <button class="btn primary" id="s-link">${ICON.link}產生分享連結給旅伴</button>
-        <button class="btn" id="s-export">${ICON.share}匯出行程與記帳（JSON）</button>
-        <label class="btn">${ICON.import}匯入 JSON<input id="s-import" type="file" accept="application/json,.json" hidden></label>
+        <button class="btn primary" id="s-link">${ICON.link}產生行程連結</button>
+        <p style="margin-bottom:14px"><b>給不同行、只是想看行程的人。</b>對方點開會複製一份你目前的<b>行程和清單</b>到他手機，<b>不含記帳</b>，之後兩邊各走各的，你再改他也看不到（要再傳一次新連結）。<br>
+        要一起記帳請改用上面的「和旅伴一起用」。</p>
+        <button class="btn" id="s-export">${ICON.share}匯出備份檔（JSON）</button>
+        <label class="btn">${ICON.import}從備份檔還原<input id="s-import" type="file" accept="application/json,.json" hidden></label>
         <button class="btn" id="s-xlsx">${ICON.sheet}匯出記帳 Excel</button>
-        <p>分享連結最方便：旅伴點開就會問要不要匯入你的行程與清單（他的記帳不受影響）。你之後改了行程，要再傳一次新連結。<br>
-        Excel 有兩個分頁：「明細」每筆都列出日幣、台幣、匯率與換算結果；「統計」依分類、付款方式、日期加總。</p>
+        <p>備份檔含行程、清單和記帳，可以存起來或換手機時還原。Excel 有兩個分頁：「明細」每筆列出日幣、台幣、匯率與換算結果；「統計」依分類、付款方式、日期加總。</p>
       </div></div>
       </section>
       <section class="sec">
