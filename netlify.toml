@@ -1,0 +1,9 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+# /api/share 由函式處理（函式自己用 config.path 宣告路徑）
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store"

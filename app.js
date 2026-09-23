@@ -982,8 +982,18 @@
   }
   async function makeShareLink() {
     const payload = { v: 1, days: state.days, checklist: state.checklist, rate: state.rate };
-    const code = await packData(JSON.stringify(payload));
-    const url = `${location.origin}${location.pathname}#d=${code}`;
+    const json = JSON.stringify(payload);
+    const base = `${location.origin}${location.pathname}`;
+    let url = '';
+    // 先試短網址（行程存在雲端，只帶 6 碼）；失敗就退回把資料塞進網址的長版
+    try {
+      const res = await fetch('/api/share', { method: 'POST', headers: { 'content-type': 'application/json' }, body: json });
+      if (res.ok) {
+        const { code } = await res.json();
+        if (/^[A-Z2-9]{6}$/.test(code || '')) url = `${base}#s=${code}`;
+      }
+    } catch (e) { /* 沒網路或功能沒上線，走下面的長網址 */ }
+    if (!url) url = `${base}#d=${await packData(json)}`;
     try {
       if (navigator.share) { await navigator.share({ title: '關西旅行行程', url }); return; }
     } catch (err) {
@@ -998,11 +1008,21 @@
   }
   // 開啟時如果網址帶著分享碼，問過使用者再匯入（記帳不動）
   async function importFromHash() {
-    const m = /^#d=(.+)$/.exec(location.hash || '');
-    if (!m) return;
+    const short = /^#s=([A-Za-z2-9]{6})$/.exec(location.hash || '');
+    const long = /^#d=(.+)$/.exec(location.hash || '');
+    if (!short && !long) return;
     history.replaceState(null, '', location.pathname + location.search);
     try {
-      const data = JSON.parse(await unpackData(m[1]));
+      let raw;
+      if (short) {
+        const res = await fetch(`/api/share?c=${short[1].toUpperCase()}`);
+        if (res.status === 404) throw new Error('這個分享碼已經找不到了，請旅伴重傳');
+        if (!res.ok) throw new Error('連不上伺服器，請確認有網路');
+        raw = await res.text();
+      } else {
+        raw = await unpackData(long[1]);
+      }
+      const data = JSON.parse(raw);
       if (!Array.isArray(data.days) || !Array.isArray(data.checklist)) throw new Error('連結內容不完整');
       if (!confirm('要匯入旅伴分享的行程與清單嗎？\n你自己的記帳不會被動到，但行程與清單會被覆蓋。')) return;
       state.days = data.days;

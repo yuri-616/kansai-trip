@@ -1,0 +1,10 @@
+{
+  "name": "kansai-trip-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "關西 8 日旅行 App：行程、記帳、清單、旅遊日語",
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
