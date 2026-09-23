@@ -1015,7 +1015,12 @@
     try {
       let raw;
       if (short) {
-        const res = await fetch(`/api/share?c=${short[1].toUpperCase()}`);
+        const code = short[1].toUpperCase();
+        let res = await fetch(`/api/share?c=${code}`);
+        if (res.status === 404) { // 剛存好可能還沒同步完，等一下再試一次
+          await new Promise((r) => setTimeout(r, 1500));
+          res = await fetch(`/api/share?c=${code}`);
+        }
         if (res.status === 404) throw new Error('這個分享碼已經找不到了，請旅伴重傳');
         if (!res.ok) throw new Error('連不上伺服器，請確認有網路');
         raw = await res.text();

@@ -7,7 +7,8 @@ const newCode = () => Array.from({ length: 6 }, () => ALPHABET[Math.floor(Math.r
 const MAX_BYTES = 2 * 1024 * 1024;
 
 export default async (req) => {
-  const store = getStore('trip-shares');
+  // consistency: 'strong' → 剛存好馬上就讀得到（預設是最終一致性，會先 404）
+  const store = getStore({ name: 'trip-shares', consistency: 'strong' });
   const cors = {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
