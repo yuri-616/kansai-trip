@@ -6,7 +6,7 @@ const newCode = () => Array.from({ length: 6 }, () => ALPHABET[Math.floor(Math.r
 const MAX_BYTES = 4 * 1024 * 1024;
 const CORS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
+  'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
   'access-control-allow-headers': 'content-type',
   'cache-control': 'no-store',
 };
@@ -50,6 +50,12 @@ export default async (req) => {
     try { JSON.parse(body); } catch { return text('not json', 400); }
     if (!(await store.get(code, { type: 'text' }))) return text('not found', 404);
     await store.set(code, body, { metadata: { updated: new Date().toISOString() } });
+    return json({ ok: true });
+  }
+
+  // 關掉房間：換新代碼時用，舊代碼與舊連結立刻失效
+  if (req.method === 'DELETE') {
+    await store.delete(code);
     return json({ ok: true });
   }
 

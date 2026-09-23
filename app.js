@@ -752,8 +752,10 @@
             </div>
             <button class="btn primary" id="s-sync">${ICON.reset}立即同步</button>
             <button class="btn" id="s-invite">${ICON.link}複製邀請連結</button>
+            <button class="btn" id="s-rotate">${ICON.reset}換一組新代碼（移出目前所有人）</button>
             <button class="btn danger" id="s-leave">離開房間</button>
-            <p>同房間的人共用行程、清單和記帳。打開 App、切回前景、每 30 秒會自動同步一次。同一筆資料以最後修改的為準。</p>
+            <p>同房間的人共用行程、清單和記帳。打開 App、切回前景、每 30 秒會自動同步一次；同一筆資料以最後修改的為準。<br>
+            要換旅伴就按「換一組新代碼」：舊代碼與舊連結立刻失效，對方之後看不到你的更新（他手機上已經同步過的內容仍在他那裡）。</p>
           ` : `
             <button class="btn primary" id="s-create">建立共用房間</button>
             <div class="row2" style="margin-top:8px">
@@ -800,6 +802,9 @@
     if (state.room) {
       $('#s-sync').onclick = () => syncRoom();
       $('#s-leave').onclick = () => { if (confirm('離開後就不再和旅伴同步，資料會留在這支手機。確定嗎？')) leaveRoom(); };
+      $('#s-rotate').onclick = () => {
+        if (confirm('要換一組新代碼嗎？\n目前房間裡的人（包含舊連結）都會被移出，你的行程與記帳會完整帶到新代碼。\n注意：對方手機上已經同步過的資料仍留在他那裡。')) rotateRoom();
+      };
       $('#s-invite').onclick = async () => {
         const url = `${location.origin}${location.pathname}#r=${state.room}`;
         try {
@@ -1049,7 +1054,13 @@
     if (!opts.silent) renderSettingsIfOpen();
     try {
       const res = await fetch(`/api/room?c=${state.room}`);
-      if (res.status === 404) throw new Error('找不到這個房間，可能代碼錯了');
+      if (res.status === 404) {
+        if (opts.joining) throw new Error('找不到這個房間，代碼可能打錯了');
+        // 房主換了代碼（把成員移出），自己就退出房間，本機資料留著
+        state.room = ''; save(); render();
+        toast('這個共用房間已經關閉，資料留在你手機裡');
+        return false;
+      }
       if (!res.ok) throw new Error('連不上伺服器');
       const remote = await res.json();
       const merged = mergeState(state, remote);
@@ -1094,10 +1105,24 @@
     if (!/^[A-Z2-9]{6}$/.test(c)) { toast('代碼是 6 碼英數字'); return false; }
     const before = state.room;
     state.room = c;
-    const ok = await syncRoom();
+    const ok = await syncRoom({ joining: true });
     if (!ok) { state.room = before; save(); render(); return false; }
     toast('已加入共用房間');
     return true;
+  }
+  // 換一組新代碼：等於把目前所有人移出，舊連結立刻失效
+  async function rotateRoom() {
+    const old = state.room;
+    try {
+      const res = await fetch('/api/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cloudDoc(state)) });
+      if (!res.ok) throw new Error('伺服器沒有回應');
+      const { code } = await res.json();
+      if (!/^[A-Z2-9]{6}$/.test(code || '')) throw new Error('代碼格式不對');
+      state.room = code; state.syncAt = now();
+      save(); render();
+      if (old) fetch(`/api/room?c=${old}`, { method: 'DELETE' }).catch(() => {});
+      toast(`新代碼：${code}，舊連結已失效`);
+    } catch (e) { toast('換代碼失敗：' + e.message); }
   }
   function leaveRoom() {
     state.room = '';
