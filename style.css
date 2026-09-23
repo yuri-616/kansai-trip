@@ -199,6 +199,10 @@ main { padding: 0 16px; max-width: 640px; margin: 0 auto; }
 
 /* 設定 */
 #view-settings .card, #view-list .card, #view-jp .card { margin-bottom: 0; }
+.room-box { text-align: center; padding: 6px 0 14px; }
+.room-code { font-size: 30px; font-weight: 800; letter-spacing: .28em; color: var(--accent); text-indent: .28em; }
+.room-meta { margin-top: 4px; color: var(--muted); font-size: 13px; }
+#s-code { text-transform: uppercase; letter-spacing: .12em; text-align: center; }
 .set-row { padding: 16px; border-top: 1px solid var(--line); }
 .set-row:first-child { border-top: 0; }
 .set-row p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }

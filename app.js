@@ -88,10 +88,17 @@
     if (added) setTimeout(() => toast(`清單補上 ${added} 個新項目`), 400);
     return s;
   }
-  // 舊資料升級：ICOCA 改名西瓜卡、拿掉照片欄位、金額一律整數
+  // 舊資料升級：ICOCA 改名西瓜卡、拿掉照片欄位、金額一律整數、補上同步用的時間戳記
   function normalize(s) {
+    const t0 = 1;
+    if (!s.daysUpdatedAt) s.daysUpdatedAt = t0;
+    if (!s.checklistUpdatedAt) s.checklistUpdatedAt = t0;
+    if (!s.rateUpdatedAt) s.rateUpdatedAt = t0;
+    if (typeof s.room !== 'string') s.room = '';
     s.expenses = (s.expenses || []).map((e) => {
       const x = Object.assign({}, e);
+      if (!x.updatedAt) x.updatedAt = t0;
+      x.deleted = !!x.deleted;
       if (x.pay === 'ICOCA') x.pay = '西瓜卡';
       if (!PAYS.includes(x.pay)) x.pay = '現金';
       x.amount = Math.round(Number(x.amount) || 0);
@@ -128,6 +135,12 @@
     return s ? parseInt(s, 10) : 0;
   };
   const catLabel = (e) => (e.cat === '其他' && e.other ? `其他：${e.other}` : e.cat);
+  const now = () => Date.now();
+  const liveExpenses = () => state.expenses.filter((e) => !e.deleted); // 刪掉的留著當墓碑，才能同步刪除
+  // 改了什麼就蓋一次時間戳記，同步時才知道誰比較新
+  const touchDays = () => { state.daysUpdatedAt = now(); };
+  const touchChecklist = () => { state.checklistUpdatedAt = now(); };
+  const touchRate = () => { state.rateUpdatedAt = now(); };
 
   // ---------- 提示與復原 ----------
   let toastTimer = null;
@@ -156,8 +169,14 @@
   function removeWithUndo(label, mutate, onExpire) {
     const snap = clone(state);
     mutate();
-    save(); render();
-    toast(`已刪除「${label}」`, () => { state = snap; save(); render(); toast('已復原'); }, onExpire);
+    save(); render(); scheduleSync();
+    toast(`已刪除「${label}」`, () => {
+      state = snap;
+      // 復原也要蓋新的時間戳記，否則雲端上比較新的「已刪除」又會把它蓋回去
+      state.daysUpdatedAt = now(); state.checklistUpdatedAt = now();
+      state.expenses = state.expenses.map((e) => Object.assign({}, e, { updatedAt: now() }));
+      save(); render(); scheduleSync(); toast('已復原');
+    }, onExpire);
   }
 
   // ---------- 底部面板 ----------
@@ -281,7 +300,7 @@
       $('#f-save', sh).onclick = () => {
         d.title = $('#f-title', sh).value.trim() || d.title;
         d.city = $('#f-city', sh).value.trim() || d.city;
-        save(); closeSheet(); render(); toast('已儲存');
+        touchDays(); save(); closeSheet(); render(); toast('已儲存'); scheduleSync();
       };
     });
   }
@@ -318,13 +337,13 @@
       else {
         $('#f-del', sh).onclick = () => {
           closeSheet();
-          removeWithUndo(it.text || '行程', () => list.splice(idx, 1));
+          removeWithUndo(it.text || '行程', () => { list.splice(idx, 1); touchDays(); });
         };
         const move = (dir) => {
           const j = idx + dir;
           if (j < 0 || j >= list.length) return;
           [list[idx], list[j]] = [list[j], list[idx]];
-          save(); closeSheet(); render();
+          touchDays(); save(); closeSheet(); render(); scheduleSync();
         };
         $('#f-up', sh).onclick = () => move(-1);
         $('#f-down', sh).onclick = () => move(1);
@@ -350,7 +369,7 @@
         const target = d.sections[newSec] || (d.sections[newSec] = []);
         if (!isNew && newSec === sec) target.splice(idx, 0, next);
         else target.push(next);
-        save(); closeSheet(); render(); toast('已儲存');
+        touchDays(); save(); closeSheet(); render(); toast('已儲存'); scheduleSync();
       };
       if (isNew) setTimeout(() => $('#f-text', sh).focus(), 50);
     });
@@ -377,7 +396,7 @@
   // ---------- 記帳 ----------
   function renderMoney() {
     const el = $('#view-money');
-    const ex = state.expenses;
+    const ex = liveExpenses();
     const twd = ex.reduce((s, e) => s + toTWD(e), 0);
     const jpy = ex.reduce((s, e) => s + toJPY(e), 0);
 
@@ -405,7 +424,7 @@
         const main = e.currency === 'JPY' ? `¥${fmt(e.amount)}` : `NT$${fmt(e.amount)}`;
         const alt = e.currency === 'TWD' ? `≈ ¥${fmt(toJPY(e))}`
           : isManual(e) ? `NT$${fmt(e.twd)}<span class="tag">手動</span>` : `≈ NT$${fmt(toTWD(e))}`;
-        return `<div class="exp" data-exp="${i}">
+        return `<div class="exp" data-exp="${esc(e.id)}">
           <span class="cat-ico">${catIcon(e.cat)}</span>
           <div class="body"><div>${esc(e.note || catLabel(e))}</div><div class="sub2">${esc(catLabel(e))}・${esc(e.pay)}</div></div>
           <div class="amt">${main}<small>${alt}</small></div>
@@ -434,14 +453,17 @@
       ${list || ''}`;
 
     el.querySelectorAll('[data-by]').forEach((b) => (b.onclick = () => { ui.moneyBy = b.dataset.by; render(); }));
-    el.querySelectorAll('[data-exp]').forEach((r) => (r.onclick = () => editExpense(+r.dataset.exp)));
+    el.querySelectorAll('[data-exp]').forEach((r) => (r.onclick = () => editExpense(r.dataset.exp)));
   }
 
-  function editExpense(idx) {
-    const isNew = idx < 0;
+  // id 為空字串代表新增；用 id 而不是位置，才不會被「已刪除但留著的墓碑」錯開
+  function editExpense(id) {
+    const isNew = !id;
+    const idx = isNew ? -1 : state.expenses.findIndex((x) => x.id === id);
+    if (!isNew && idx < 0) { toast('找不到這筆記帳'); return; }
     const t = todayStr();
     const e = isNew
-      ? { id: uid(), date: t, amount: '', currency: 'JPY', cat: '餐飲', other: '', pay: '信用卡', note: '' }
+      ? { id: uid(), date: t, amount: '', currency: 'JPY', cat: '餐飲', other: '', pay: '信用卡', note: '', updatedAt: 0, deleted: false }
       : clone(state.expenses[idx]);
     const chips = (name, arr, cur) => `<div class="chips" data-chip="${name}">${arr.map((v) => {
       const ico = name === 'cat' ? catIcon(v) : '';
@@ -526,7 +548,10 @@
         $('#f-del', sh).onclick = () => {
           const old = state.expenses[idx];
           closeSheet();
-          removeWithUndo(old.note || catLabel(old), () => state.expenses.splice(idx, 1));
+          // 標記刪除而不是真的移除，這樣旅伴那邊才會跟著消失
+          removeWithUndo(old.note || catLabel(old), () => {
+            state.expenses[idx] = Object.assign({}, old, { deleted: true, updatedAt: now() });
+          });
         };
       }
       $('#f-save', sh).onclick = () => {
@@ -543,8 +568,10 @@
         e.other = e.cat === '其他' ? other : '';
         e.date = $('#f-date', sh).value || t;
         e.note = $('#f-note', sh).value.trim();
+        e.updatedAt = now();
+        e.deleted = false;
         if (isNew) state.expenses.push(e); else state.expenses[idx] = e;
-        save(); closeSheet(); render(); toast('已記帳');
+        save(); closeSheet(); render(); toast('已記帳'); scheduleSync();
       };
     });
   }
@@ -579,7 +606,7 @@
       ${groups}
       <button class="btn" id="addCat">${ICON.plus}新增類別</button>`;
 
-    el.querySelectorAll('[data-chk]').forEach((c) => (c.onchange = () => { cl[+c.dataset.chk].done = c.checked; save(); render(); }));
+    el.querySelectorAll('[data-chk]').forEach((c) => (c.onchange = () => { cl[+c.dataset.chk].done = c.checked; touchChecklist(); save(); render(); scheduleSync(); }));
     el.querySelectorAll('[data-edit-chk]').forEach((b) => (b.onclick = (ev) => { ev.preventDefault(); editCheck(+b.dataset.editChk); }));
     el.querySelectorAll('[data-add-chk]').forEach((b) => (b.onclick = () => editCheck(-1, b.dataset.addChk)));
     $('#addCat').onclick = () => editCheck(-1, '');
@@ -601,7 +628,7 @@
       </div>`,
     (sh) => {
       if (isNew) $('#f-cancel', sh).onclick = closeSheet;
-      else $('#f-del', sh).onclick = () => { closeSheet(); removeWithUndo(x.text, () => state.checklist.splice(idx, 1)); };
+      else $('#f-del', sh).onclick = () => { closeSheet(); removeWithUndo(x.text, () => { state.checklist.splice(idx, 1); touchChecklist(); }); };
       $('#f-save', sh).onclick = () => {
         const text = $('#f-text', sh).value.trim();
         if (!text) { $('#f-text', sh).focus(); return; }
@@ -609,7 +636,7 @@
         x.cat = $('#f-cat', sh).value.trim() || '其他';
         x.important = $('#f-imp', sh).checked;
         if (isNew) state.checklist.push(x); else state.checklist[idx] = x;
-        save(); closeSheet(); render(); toast('已儲存');
+        touchChecklist(); save(); closeSheet(); render(); toast('已儲存'); scheduleSync();
       };
       setTimeout(() => $('#f-text', sh).focus(), 50);
     });
@@ -716,6 +743,28 @@
         <div class="meta">匯率、備份、分享給旅伴</div>
       </div>
       <section class="sec">
+        <div class="sec-head"><span class="sec-name">共用旅行房間</span></div>
+        <div class="card"><div class="set-row">
+          ${state.room ? `
+            <div class="room-box">
+              <div class="room-code">${esc(state.room)}</div>
+              <div class="room-meta">${syncing ? '同步中…' : state.syncAt ? '最後同步 ' + new Date(state.syncAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) : '尚未同步'}</div>
+            </div>
+            <button class="btn primary" id="s-sync">${ICON.reset}立即同步</button>
+            <button class="btn" id="s-invite">${ICON.link}複製邀請連結</button>
+            <button class="btn danger" id="s-leave">離開房間</button>
+            <p>同房間的人共用行程、清單和記帳。打開 App、切回前景、每 30 秒會自動同步一次。同一筆資料以最後修改的為準。</p>
+          ` : `
+            <button class="btn primary" id="s-create">建立共用房間</button>
+            <div class="row2" style="margin-top:8px">
+              <div class="field" style="margin:0"><input id="s-code" placeholder="輸入 6 碼代碼" maxlength="6" autocapitalize="characters" autocomplete="off"></div>
+              <button class="btn" id="s-join" style="margin:0">加入</button>
+            </div>
+            <p>建立房間後把代碼或邀請連結給旅伴，兩邊的行程、清單、記帳就會互通。沒有加入房間時，資料只留在這支手機。</p>
+          `}
+        </div></div>
+      </section>
+      <section class="sec">
         <div class="sec-head"><span class="sec-name">匯率</span></div>
         <div class="card"><div class="set-row">
           <div class="field" style="margin:0"><label>1 日圓 = ? 台幣</label>
@@ -746,12 +795,28 @@
 
     $('#s-rate').onchange = (ev) => {
       const v = parseFloat(ev.target.value);
-      if (v > 0) { state.rate = v; save(); toast('匯率已更新'); } else ev.target.value = state.rate;
+      if (v > 0) { state.rate = v; touchRate(); save(); toast('匯率已更新'); scheduleSync(); } else ev.target.value = state.rate;
     };
+    if (state.room) {
+      $('#s-sync').onclick = () => syncRoom();
+      $('#s-leave').onclick = () => { if (confirm('離開後就不再和旅伴同步，資料會留在這支手機。確定嗎？')) leaveRoom(); };
+      $('#s-invite').onclick = async () => {
+        const url = `${location.origin}${location.pathname}#r=${state.room}`;
+        try {
+          if (navigator.share) { await navigator.share({ title: '一起看關西行程', url }); return; }
+        } catch (err) { if (err && err.name === 'AbortError') return; }
+        try { await navigator.clipboard.writeText(url); toast('邀請連結已複製'); }
+        catch (err) { prompt('把這條連結傳給旅伴：', url); }
+      };
+    } else {
+      $('#s-create').onclick = createRoom;
+      $('#s-join').onclick = () => joinRoom($('#s-code').value);
+      $('#s-code').onkeydown = (ev) => { if (ev.key === 'Enter') joinRoom(ev.target.value); };
+    }
     $('#s-link').onclick = makeShareLink;
     $('#s-export').onclick = () => shareFile(`kansai-trip-${todayStr()}.json`, JSON.stringify(state, null, 1), 'application/json');
     $('#s-xlsx').onclick = () => {
-      if (!state.expenses.length) { toast('還沒有記帳'); return; }
+      if (!liveExpenses().length) { toast('還沒有記帳'); return; }
       shareFile(`關西旅費_${todayStr()}.xlsx`, buildXlsx(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     };
     $('#s-import').onchange = async (ev) => {
@@ -770,7 +835,7 @@
       if (!confirm('把行程換成最新的建議版本？你的記帳和清單會保留，但行程上自己改過的內容會被覆蓋。')) return;
       state.days = clone(window.SEED.days);
       ui.dayIdx = pickToday();
-      save(); render(); toast('行程已更新');
+      touchDays(); save(); render(); toast('行程已更新'); scheduleSync();
     };
     $('#s-reset').onclick = () => {
       if (!confirm('確定要重設？所有修改和記帳都會消失。')) return;
@@ -784,7 +849,7 @@
   // 換算欄同時寫公式與算好的值：Excel 會重算，手機預覽沒公式引擎也看得到數字
   function buildXlsx() {
     const rate = state.rate;
-    const rows = state.expenses.slice().sort((a, b) => a.date.localeCompare(b.date));
+    const rows = liveExpenses().slice().sort((a, b) => a.date.localeCompare(b.date));
     const xe = (s) => String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const col = (i) => String.fromCharCode(65 + i);
@@ -952,6 +1017,97 @@
     return new Blob([...parts, ...central, new Uint8Array(end.buffer)]);
   }
 
+  // ---------- 共用旅行房間：同一組代碼的人共用行程、清單、記帳 ----------
+  let syncing = false;
+  let syncTimer = null;
+  const cloudDoc = (s) => ({
+    v: 1,
+    days: s.days, daysUpdatedAt: s.daysUpdatedAt,
+    checklist: s.checklist, checklistUpdatedAt: s.checklistUpdatedAt,
+    rate: s.rate, rateUpdatedAt: s.rateUpdatedAt,
+    expenses: s.expenses,
+  });
+  // 合併規則：行程／清單／匯率各自比時間，新的贏；記帳逐筆比，同一筆取新的（含刪除記號）
+  function mergeState(local, remote) {
+    if (!remote) return local;
+    const out = clone(local);
+    if ((remote.daysUpdatedAt || 0) > (local.daysUpdatedAt || 0)) { out.days = remote.days; out.daysUpdatedAt = remote.daysUpdatedAt; }
+    if ((remote.checklistUpdatedAt || 0) > (local.checklistUpdatedAt || 0)) { out.checklist = remote.checklist; out.checklistUpdatedAt = remote.checklistUpdatedAt; }
+    if ((remote.rateUpdatedAt || 0) > (local.rateUpdatedAt || 0)) { out.rate = remote.rate; out.rateUpdatedAt = remote.rateUpdatedAt; }
+    const byId = new Map();
+    (local.expenses || []).forEach((e) => byId.set(e.id, e));
+    (remote.expenses || []).forEach((r) => {
+      const l = byId.get(r.id);
+      if (!l || (r.updatedAt || 0) > (l.updatedAt || 0)) byId.set(r.id, r);
+    });
+    out.expenses = [...byId.values()];
+    return out;
+  }
+  async function syncRoom(opts = {}) {
+    if (!state.room || syncing) return false;
+    syncing = true;
+    if (!opts.silent) renderSettingsIfOpen();
+    try {
+      const res = await fetch(`/api/room?c=${state.room}`);
+      if (res.status === 404) throw new Error('找不到這個房間，可能代碼錯了');
+      if (!res.ok) throw new Error('連不上伺服器');
+      const remote = await res.json();
+      const merged = mergeState(state, remote);
+      merged.room = state.room;
+      state = merged;
+      const put = await fetch(`/api/room?c=${state.room}`, {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cloudDoc(state)),
+      });
+      if (!put.ok) throw new Error('上傳失敗');
+      state.syncAt = now();
+      save(); render();
+      if (!opts.silent) toast('已同步');
+      return true;
+    } catch (e) {
+      if (!opts.silent) toast('同步失敗：' + e.message);
+      return false;
+    } finally {
+      syncing = false;
+      renderSettingsIfOpen();
+    }
+  }
+  const renderSettingsIfOpen = () => { if (ui.view === 'settings') renderSettings(); };
+  // 本機一有變動就排程同步，避免每按一下就打一次伺服器
+  function scheduleSync() {
+    if (!state.room) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => syncRoom({ silent: true }), 1500);
+  }
+  async function createRoom() {
+    try {
+      const res = await fetch('/api/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cloudDoc(state)) });
+      if (!res.ok) throw new Error('伺服器沒有回應');
+      const { code } = await res.json();
+      if (!/^[A-Z2-9]{6}$/.test(code || '')) throw new Error('代碼格式不對');
+      state.room = code; state.syncAt = now();
+      save(); render();
+      toast(`房間建好了：${code}`);
+    } catch (e) { toast('建立失敗：' + e.message); }
+  }
+  async function joinRoom(code) {
+    const c = (code || '').trim().toUpperCase();
+    if (!/^[A-Z2-9]{6}$/.test(c)) { toast('代碼是 6 碼英數字'); return false; }
+    const before = state.room;
+    state.room = c;
+    const ok = await syncRoom();
+    if (!ok) { state.room = before; save(); render(); return false; }
+    toast('已加入共用房間');
+    return true;
+  }
+  function leaveRoom() {
+    state.room = '';
+    save(); render();
+    toast('已離開房間，資料留在這支手機');
+  }
+  // 打開 App、切回前景、每 30 秒各同步一次
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncRoom({ silent: true }); });
+  setInterval(() => { if (!document.hidden) syncRoom({ silent: true }); }, 30000);
+
   // ---------- 分享連結：把行程與清單壓進網址，朋友點開就能匯入 ----------
   const b64url = (bytes) => {
     let s = '';
@@ -1008,6 +1164,16 @@
   }
   // 開啟時如果網址帶著分享碼，問過使用者再匯入（記帳不動）
   async function importFromHash() {
+    // #r= 是共用房間邀請
+    const room = /^#r=([A-Za-z2-9]{6})$/.exec(location.hash || '');
+    if (room) {
+      history.replaceState(null, '', location.pathname + location.search);
+      const code = room[1].toUpperCase();
+      if (state.room === code) { syncRoom({ silent: true }); return; }
+      if (!confirm(`要加入共用行程「${code}」嗎？\n加入後你和旅伴的行程、清單、記帳會互通。`)) return;
+      await joinRoom(code);
+      return;
+    }
     const short = /^#s=([A-Za-z2-9]{6})$/.exec(location.hash || '');
     const long = /^#d=(.+)$/.exec(location.hash || '');
     if (!short && !long) return;
@@ -1032,9 +1198,10 @@
       if (!confirm('要匯入旅伴分享的行程與清單嗎？\n你自己的記帳不會被動到，但行程與清單會被覆蓋。')) return;
       state.days = data.days;
       state.checklist = data.checklist;
-      if (data.rate > 0) state.rate = data.rate;
+      if (data.rate > 0) { state.rate = data.rate; touchRate(); }
+      touchDays(); touchChecklist();
       ui.dayIdx = pickToday();
-      save(); render(); toast('已匯入旅伴的行程');
+      save(); render(); toast('已匯入旅伴的行程'); scheduleSync();
     } catch (err) { toast('連結讀不到：' + err.message); }
   }
 
@@ -1063,10 +1230,11 @@
     ({ trip: renderTrip, money: renderMoney, list: renderList, jp: renderJp, settings: renderSettings })[ui.view]();
   }
   document.querySelectorAll('.tabbar button').forEach((b) => (b.onclick = () => { ui.view = b.dataset.view; render(); window.scrollTo(0, 0); }));
-  $('#fab').onclick = () => editExpense(-1);
+  $('#fab').onclick = () => editExpense('');
 
   render();
   importFromHash();
+  if (state.room) syncRoom({ silent: true });
 
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

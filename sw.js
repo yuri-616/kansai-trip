@@ -1,5 +1,5 @@
 // 改了任何檔案就把版本號 +1，手機才會抓新版
-const CACHE = 'kansai-trip-v15';
+const CACHE = 'kansai-trip-v16';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'seed.js', 'phrases.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
