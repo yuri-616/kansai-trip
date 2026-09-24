@@ -715,6 +715,23 @@
       </div></div>
       </section>
       <section class="sec">
+      <div class="sec-head"><span class="sec-name">每天自動寄記帳到信箱</span></div>
+      <div class="card"><div class="set-row">
+        ${state.room ? `
+          <div class="field"><label>收件信箱</label>
+            <input id="s-mail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" value="${esc(state.mail || 'zxcv93630001@gmail.com')}"></div>
+          <div class="field check-line"><input id="s-mail-on" type="checkbox"${state.mailOn ? ' checked' : ''}>
+            <label for="s-mail-on" style="margin:0;color:var(--text)">每天日本時間晚上 10 點自動寄一封</label></div>
+          <button class="btn primary" id="s-mail-save">儲存設定</button>
+          <button class="btn" id="s-mail-test">${ICON.share}立即試寄一封</button>
+          <p>信件內容：當天每一筆花費、當天小計、目前為止的總花費、分類累計，並附上 Excel（明細＋統計）。<br>
+          資料是從雲端共用房間讀的，所以<b>要保持雲端共用開啟</b>；App 沒同步的部分不會出現在信裡。</p>
+        ` : `
+          <p>要先開啟上面的<b>雲端共用</b>才能自動寄信 —— 伺服器要從雲端拿得到你的記帳才寄得出去。</p>
+        `}
+      </div></div>
+      </section>
+      <section class="sec">
       <div class="sec-head"><span class="sec-name">資料狀態（資料不見時先看這裡）</span></div>
       <div class="card"><div class="set-row">
         <div class="diag">
@@ -762,6 +779,37 @@
       $('#s-create').onclick = createRoom;
       $('#s-join').onclick = () => joinRoom($('#s-code').value);
       $('#s-code').onkeydown = (ev) => { if (ev.key === 'Enter') joinRoom(ev.target.value); };
+    }
+    if (state.room && $('#s-mail')) {
+      const saveMail = async (enabled) => {
+        const email = $('#s-mail').value.trim();
+        if (enabled && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('請填正確的 Email'); return false; }
+        try {
+          const res = await fetch(`/api/report?c=${state.room}`, {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, enabled }),
+          });
+          const r = await res.json();
+          if (!res.ok) throw new Error(r.error || '伺服器沒有回應');
+          state.mail = email; state.mailOn = enabled;
+          save();
+          return true;
+        } catch (e) { toast('設定失敗：' + e.message); return false; }
+      };
+      $('#s-mail-save').onclick = async () => {
+        if (await saveMail($('#s-mail-on').checked)) toast($('#s-mail-on').checked ? '已開啟每天自動寄信' : '已關閉自動寄信');
+      };
+      $('#s-mail-test').onclick = async () => {
+        const email = $('#s-mail').value.trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('請填正確的 Email'); return; }
+        toast('寄送中…');
+        await syncRoom({ silent: true }); // 先把最新資料推上雲端再寄
+        try {
+          const res = await fetch(`/api/report?c=${state.room}&send=1&to=${encodeURIComponent(email)}`);
+          const r = await res.json();
+          if (!res.ok) throw new Error(r.error || '寄信失敗');
+          toast(`已寄出：${r.count} 筆・NT$${fmt(r.total)}`);
+        } catch (e) { toast('寄信失敗：' + e.message); }
+      };
     }
     $('#s-link').onclick = makeShareLink;
     $('#s-export').onclick = () => shareFile(`kansai-trip-${todayStr()}.json`, JSON.stringify(state, null, 1), 'application/json');
