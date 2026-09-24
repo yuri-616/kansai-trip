@@ -96,9 +96,16 @@
     });
     return s;
   }
+  let saveFailed = false;
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
-    catch (e) { toast('儲存失敗：手機空間可能不足'); }
+    try {
+      state.savedAt = now();
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      saveFailed = false;
+    } catch (e) {
+      saveFailed = true;
+      toast('存不進去！可能是無痕模式或手機空間不足');
+    }
   }
   function pickToday() {
     const t = todayStr();
@@ -705,6 +712,22 @@
         <label class="btn">${ICON.import}從備份檔還原<input id="s-import" type="file" accept="application/json,.json" hidden></label>
         <button class="btn" id="s-xlsx">${ICON.sheet}匯出記帳 Excel</button>
         <p>備份檔含行程、清單和記帳，可以存起來或換手機時還原。Excel 有兩個分頁：「明細」每筆列出日幣、台幣、匯率與換算結果；「統計」依分類、付款方式、日期加總。</p>
+      </div></div>
+      </section>
+      <section class="sec">
+      <div class="sec-head"><span class="sec-name">資料狀態（資料不見時先看這裡）</span></div>
+      <div class="card"><div class="set-row">
+        <div class="diag">
+          <div><span>目前網址</span><b>${esc(location.host)}</b></div>
+          <div><span>開啟方式</span><b>${window.matchMedia('(display-mode: standalone)').matches || navigator.standalone ? '主畫面圖示' : '瀏覽器分頁'}</b></div>
+          <div><span>目前資料</span><b>行程 ${state.days.reduce((s, d) => s + Object.values(d.sections).reduce((a, x) => a + x.length, 0), 0)} 項・記帳 ${liveExpenses().length} 筆</b></div>
+          <div><span>最後儲存</span><b>${state.savedAt ? new Date(state.savedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '尚未儲存'}</b></div>
+          <div><span>雲端共用</span><b>${state.room ? state.room : '未開啟'}</b></div>
+          ${saveFailed ? '<div class="warn">這支手機存不了資料！請不要用無痕視窗。</div>' : ''}
+        </div>
+        <p><b>資料是綁在「網址 + 開啟方式」上的。</b>同一支手機，用瀏覽器開和用主畫面圖示開，是兩份各自獨立的資料；換網址也會看不到舊資料。<br>
+        資料不見時先對照上面三行：網址是不是 <b>soft-manatee-dc6a7a.netlify.app</b>、開啟方式和昨天是否一樣。<br>
+        最保險的做法是<b>開啟雲端共用</b>（上面第一區），資料會同時存到雲端，就算手機資料被清掉，輸入同一組代碼就能救回來。</p>
       </div></div>
       </section>
       <section class="sec">

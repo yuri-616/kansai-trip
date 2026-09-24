@@ -193,6 +193,12 @@ main { padding: 0 16px; max-width: 640px; margin: 0 auto; }
 
 /* 設定 */
 #view-settings .card, #view-jp .card { margin-bottom: 0; }
+.diag { font-size: 14px; line-height: 1.9; margin-bottom: 10px; }
+.diag > div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 4px 0; }
+.diag > div:last-child { border-bottom: 0; }
+.diag span { color: var(--muted); flex: 0 0 auto; }
+.diag b { text-align: right; word-break: break-all; }
+.diag .warn { display: block; color: var(--accent); font-weight: 700; border: 0; }
 .room-box { text-align: center; padding: 6px 0 14px; }
 .room-code { font-size: 30px; font-weight: 800; letter-spacing: .28em; color: var(--accent); text-indent: .28em; }
 .room-meta { margin-top: 4px; color: var(--muted); font-size: 13px; }
