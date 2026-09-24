@@ -711,7 +711,9 @@
         <button class="btn" id="s-export">${ICON.share}匯出備份檔（JSON）</button>
         <label class="btn">${ICON.import}從備份檔還原<input id="s-import" type="file" accept="application/json,.json" hidden></label>
         <button class="btn" id="s-xlsx">${ICON.sheet}匯出記帳 Excel</button>
-        <p>備份檔含行程、清單和記帳，可以存起來或換手機時還原。Excel 有兩個分頁：「明細」每筆列出日幣、台幣、匯率與換算結果；「統計」依分類、付款方式、日期加總。</p>
+        <button class="btn" id="s-csv">${ICON.sheet}匯出記帳 CSV（打不開 Excel 時用）</button>
+        <p>備份檔含行程和記帳，可以存起來或換手機時還原。Excel 有兩個分頁：「明細」每筆列出日幣、台幣、匯率與換算結果；「統計」依分類、付款方式、日期加總。<br>
+        <b>iPhone 打不開 Excel 時</b>：改用 CSV，或把 Excel 用 LINE／Mail 傳到電腦再開。手機上要看 Excel 需要裝 Numbers 或 Microsoft Excel。</p>
       </div></div>
       </section>
       <section class="sec">
@@ -817,6 +819,20 @@
       if (!liveExpenses().length) { toast('還沒有記帳'); return; }
       shareFile(`關西旅費_${todayStr()}.xlsx`, buildXlsx(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     };
+    // CSV 備案：Numbers、Excel、Google 試算表都打得開
+    $('#s-csv').onclick = () => {
+      const rows = liveExpenses().slice().sort((a, b) => a.date.localeCompare(b.date));
+      if (!rows.length) { toast('還沒有記帳'); return; }
+      const q = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+      const out = [['日期', '分類', '付款方式', '說明', '日幣金額', '台幣金額', '匯率', '換算台幣', '換算方式']];
+      rows.forEach((e) => out.push(e.currency === 'TWD'
+        ? [e.date, catLabel(e), e.pay, e.note, '', e.amount, '', toTWD(e), '台幣直接付']
+        : [e.date, catLabel(e), e.pay, e.note, e.amount, '', isManual(e) ? '' : state.rate, toTWD(e), isManual(e) ? '手動輸入台幣' : '自動換算']));
+      out.push(['合計', '', '', '', rows.filter((e) => e.currency === 'JPY').reduce((s, e) => s + e.amount, 0), '', '',
+        rows.reduce((s, e) => s + toTWD(e), 0), '']);
+      // 前面的 BOM 是為了 Excel 開中文不亂碼
+      shareFile(`關西旅費_${todayStr()}.csv`, '﻿' + out.map((r) => r.map(q).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
+    };
     $('#s-import').onchange = async (ev) => {
       const f = ev.target.files && ev.target.files[0];
       ev.target.value = '';
@@ -863,12 +879,19 @@
         const [v, s] = Array.isArray(c) ? c : [c, 0];
         return cell(col(ci) + (ri + 1), v, s);
       }).join('')}</row>`).join('');
+      const maxCol = Math.max(1, ...data.map((r) => r.length));
+      // iPhone 的預覽器（Quick Look、Numbers）比 Excel 挑，dimension 與 sheetFormatPr 要寫齊
       return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        + (freeze ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' : '')
+        + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        + `<dimension ref="A1:${col(maxCol - 1)}${Math.max(1, data.length)}"/>`
+        + (freeze
+          ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft"/></sheetView></sheetViews>'
+          : '<sheetViews><sheetView workbookViewId="0"/></sheetViews>')
+        + '<sheetFormatPr defaultRowHeight="15"/>'
         + `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>`
-        + `<sheetData>${body}</sheetData></worksheet>`;
+        + `<sheetData>${body}</sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>`;
     };
+    const nowISO = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     // 樣式：1 表頭　2 整數千分位　3 粗體整數（合計）　4 粗體文字　5 匯率
     const H = 1, N = 2, NB = 3, B = 4, R = 5;
 
@@ -945,13 +968,30 @@
         + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
         + '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
         + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        + '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+        + '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
         + '</Types>',
       '_rels/.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
         + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+        + '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
         + '</Relationships>',
+      'docProps/core.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        + '<dc:title>關西旅費</dc:title><dc:creator>關西旅行 App</dc:creator><cp:lastModifiedBy>關西旅行 App</cp:lastModifiedBy>'
+        + `<dcterms:created xsi:type="dcterms:W3CDTF">${nowISO}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${nowISO}</dcterms:modified>`
+        + '</cp:coreProperties>',
+      'docProps/app.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+        + '<Application>Kansai Trip App</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>'
+        + '<TitlesOfParts><vt:vector size="2" baseType="lpstr"><vt:lpstr>明細</vt:lpstr><vt:lpstr>統計</vt:lpstr></vt:vector></TitlesOfParts>'
+        + '<Company></Company><LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc><HyperlinksChanged>false</HyperlinksChanged><AppVersion>16.0300</AppVersion>'
+        + '</Properties>',
       'xl/workbook.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        + '<fileVersion appName="xl" lastEdited="7" lowestEdited="7" rupBuild="27130"/><workbookPr defaultThemeVersion="166925"/>'
+        + '<bookViews><workbookView xWindow="0" yWindow="0" windowWidth="20000" windowHeight="12000"/></bookViews>'
         + '<sheets><sheet name="明細" sheetId="1" r:id="rId1"/><sheet name="統計" sheetId="2" r:id="rId2"/></sheets>'
         + '<calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>',
       'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
