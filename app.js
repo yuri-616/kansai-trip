@@ -69,30 +69,17 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         const s = JSON.parse(raw);
-        if (s && Array.isArray(s.days)) return mergeSeed(normalize(s));
+        if (s && Array.isArray(s.days)) return normalize(s);
       }
     } catch (e) { /* 讀不到就用初始資料 */ }
     return normalize(clone(window.SEED));
   }
-  // 手機裡已經有資料時，把「初始清單」後來新增的項目補進去（不動使用者自己改的）
-  function mergeSeed(s) {
-    const seed = window.SEED;
-    if (!seed || s.seedVersion === window.SEED_VERSION) return s;
-    const have = new Set((s.checklist || []).map((x) => x.text));
-    let added = 0;
-    seed.checklist.forEach((x) => {
-      if (!have.has(x.text)) { s.checklist.push(Object.assign({}, x, { id: uid() })); added++; }
-    });
-    s.seedVersion = window.SEED_VERSION;
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* 存不了就下次再補 */ }
-    if (added) setTimeout(() => toast(`清單補上 ${added} 個新項目`), 400);
-    return s;
-  }
-  // 舊資料升級：ICOCA 改名西瓜卡、拿掉照片欄位、金額一律整數、補上同步用的時間戳記
+  // 舊資料升級：ICOCA 改名西瓜卡、拿掉照片欄位與清單、金額一律整數、補上同步用的時間戳記
   function normalize(s) {
     const t0 = 1;
+    delete s.checklist; // 清單功能已移除
+    delete s.checklistUpdatedAt;
     if (!s.daysUpdatedAt) s.daysUpdatedAt = t0;
-    if (!s.checklistUpdatedAt) s.checklistUpdatedAt = t0;
     if (!s.rateUpdatedAt) s.rateUpdatedAt = t0;
     if (typeof s.room !== 'string') s.room = '';
     s.expenses = (s.expenses || []).map((e) => {
@@ -139,7 +126,6 @@
   const liveExpenses = () => state.expenses.filter((e) => !e.deleted); // 刪掉的留著當墓碑，才能同步刪除
   // 改了什麼就蓋一次時間戳記，同步時才知道誰比較新
   const touchDays = () => { state.daysUpdatedAt = now(); };
-  const touchChecklist = () => { state.checklistUpdatedAt = now(); };
   const touchRate = () => { state.rateUpdatedAt = now(); };
 
   // ---------- 提示與復原 ----------
@@ -173,7 +159,7 @@
     toast(`已刪除「${label}」`, () => {
       state = snap;
       // 復原也要蓋新的時間戳記，否則雲端上比較新的「已刪除」又會把它蓋回去
-      state.daysUpdatedAt = now(); state.checklistUpdatedAt = now();
+      state.daysUpdatedAt = now();
       state.expenses = state.expenses.map((e) => Object.assign({}, e, { updatedAt: now() }));
       save(); render(); scheduleSync(); toast('已復原');
     }, onExpire);
@@ -576,72 +562,6 @@
     });
   }
 
-  // ---------- 清單 ----------
-  function renderList() {
-    const el = $('#view-list');
-    const cl = state.checklist;
-    const done = cl.filter((x) => x.done).length;
-    const cats = [...new Set(cl.map((x) => x.cat))];
-    const groups = cats.map((cat) => {
-      const rows = cl.map((x, i) => [x, i]).filter(([x]) => x.cat === cat).map(([x, i]) => `
-        <label class="chk${x.done ? ' done' : ''}${x.important ? ' important' : ''}">
-          <input type="checkbox" data-chk="${i}"${x.done ? ' checked' : ''}>
-          <span class="txt">${esc(x.text)}</span>
-          <button class="icon-btn" data-edit-chk="${i}" aria-label="編輯">${ICON.pencil}</button>
-        </label>`).join('');
-      const n = cl.filter((x) => x.cat === cat);
-      return `<section class="sec">
-        <div class="sec-head">
-          <span class="sec-name">${esc(cat)}<small>${n.filter((x) => x.done).length}/${n.length}</small></span>
-          <button class="add" data-add-chk="${esc(cat)}" aria-label="新增">${ICON.plus}</button>
-        </div>
-        <div class="card">${rows}</div></section>`;
-    }).join('');
-    el.innerHTML = `
-      <div class="view-head">
-        <div class="eyebrow">CHECKLIST　紅字＝最重要</div>
-        <h2 class="big">${done} / ${cl.length}</h2>
-        <div class="progress"><i style="width:${cl.length ? (done / cl.length) * 100 : 0}%"></i></div>
-      </div>
-      ${groups}
-      <button class="btn" id="addCat">${ICON.plus}新增類別</button>`;
-
-    el.querySelectorAll('[data-chk]').forEach((c) => (c.onchange = () => { cl[+c.dataset.chk].done = c.checked; touchChecklist(); save(); render(); scheduleSync(); }));
-    el.querySelectorAll('[data-edit-chk]').forEach((b) => (b.onclick = (ev) => { ev.preventDefault(); editCheck(+b.dataset.editChk); }));
-    el.querySelectorAll('[data-add-chk]').forEach((b) => (b.onclick = () => editCheck(-1, b.dataset.addChk)));
-    $('#addCat').onclick = () => editCheck(-1, '');
-  }
-
-  function editCheck(idx, cat) {
-    const isNew = idx < 0;
-    const x = isNew ? { id: uid(), cat: cat || '', text: '', done: false, important: false } : clone(state.checklist[idx]);
-    const cats = [...new Set(state.checklist.map((c) => c.cat))];
-    openSheet(`
-      <h3>${isNew ? '新增項目' : '編輯項目'}</h3>
-      <div class="field"><label>項目</label><input id="f-text" value="${esc(x.text)}" placeholder="例如：暖暖包"></div>
-      <div class="field"><label>類別（可以直接打新的類別）</label><input id="f-cat" list="catList" value="${esc(x.cat)}">
-        <datalist id="catList">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
-      <div class="field check-line"><input id="f-imp" type="checkbox"${x.important ? ' checked' : ''}><label for="f-imp" style="margin:0;color:var(--text)">標成重要（紅字）</label></div>
-      <div class="sheet-actions">
-        ${isNew ? '<button class="btn" id="f-cancel">取消</button>' : `<button class="btn danger" id="f-del">${ICON.trash}刪除</button>`}
-        <button class="btn primary" id="f-save">儲存</button>
-      </div>`,
-    (sh) => {
-      if (isNew) $('#f-cancel', sh).onclick = closeSheet;
-      else $('#f-del', sh).onclick = () => { closeSheet(); removeWithUndo(x.text, () => { state.checklist.splice(idx, 1); touchChecklist(); }); };
-      $('#f-save', sh).onclick = () => {
-        const text = $('#f-text', sh).value.trim();
-        if (!text) { $('#f-text', sh).focus(); return; }
-        x.text = text;
-        x.cat = $('#f-cat', sh).value.trim() || '其他';
-        x.important = $('#f-imp', sh).checked;
-        if (isNew) state.checklist.push(x); else state.checklist[idx] = x;
-        touchChecklist(); save(); closeSheet(); render(); toast('已儲存'); scheduleSync();
-      };
-      setTimeout(() => $('#f-text', sh).focus(), 50);
-    });
-  }
-
   // ---------- 日語 ----------
   // 朗讀日文（iPhone Safari、Android Chrome 都內建）
   function speak(text) {
@@ -754,7 +674,7 @@
             <button class="btn" id="s-invite">${ICON.link}複製邀請連結</button>
             <button class="btn" id="s-rotate">${ICON.reset}換一組新代碼（移出目前所有人）</button>
             <button class="btn danger" id="s-leave">離開房間</button>
-            <p>同房間的人共用行程、清單和記帳。打開 App、切回前景、每 30 秒會自動同步一次；同一筆資料以最後修改的為準。<br>
+            <p>同房間的人共用行程和記帳。打開 App、切回前景、每 30 秒會自動同步一次；同一筆資料以最後修改的為準。<br>
             要換旅伴就按「換一組新代碼」：舊代碼與舊連結立刻失效，對方之後看不到你的更新（他手機上已經同步過的內容仍在他那裡）。</p>
           ` : `
             <button class="btn primary" id="s-create">開始和旅伴共用</button>
@@ -762,7 +682,7 @@
               <div class="field" style="margin:0"><input id="s-code" placeholder="輸入旅伴給的 6 碼" maxlength="6" autocapitalize="characters" autocomplete="off"></div>
               <button class="btn" id="s-join" style="margin:0">加入</button>
             </div>
-            <p><b>給同行的旅伴用。</b>兩邊的<b>行程、清單、記帳全部互通</b>，誰新增都看得到，記帳合計是大家加起來的。開始共用後會拿到 6 碼代碼和邀請連結，傳給旅伴即可。<br>
+            <p><b>給同行的旅伴用。</b>兩邊的<b>行程和記帳全部互通</b>，誰新增都看得到，記帳合計是大家加起來的。開始共用後會拿到 6 碼代碼和邀請連結，傳給旅伴即可。<br>
             沒有共用時，資料只留在這支手機。</p>
           `}
         </div></div>
@@ -779,7 +699,7 @@
       <div class="sec-head"><span class="sec-name">傳一份行程給別人（單次）</span></div>
       <div class="card"><div class="set-row">
         <button class="btn primary" id="s-link">${ICON.link}產生行程連結</button>
-        <p style="margin-bottom:14px"><b>給不同行、只是想看行程的人。</b>對方點開會複製一份你目前的<b>行程和清單</b>到他手機，<b>不含記帳</b>，之後兩邊各走各的，你再改他也看不到（要再傳一次新連結）。<br>
+        <p style="margin-bottom:14px"><b>給不同行、只是想看行程的人。</b>對方點開會複製一份你目前的<b>行程</b>到他手機，<b>不含記帳</b>，之後兩邊各走各的，你再改他也看不到（要再傳一次新連結）。<br>
         要一起記帳請改用上面的「和旅伴一起用」。</p>
         <button class="btn" id="s-export">${ICON.share}匯出備份檔（JSON）</button>
         <label class="btn">${ICON.import}從備份檔還原<input id="s-import" type="file" accept="application/json,.json" hidden></label>
@@ -832,7 +752,7 @@
       if (!f) return;
       try {
         const s = JSON.parse(await f.text());
-        if (!s || !Array.isArray(s.days) || !Array.isArray(s.expenses) || !Array.isArray(s.checklist)) throw new Error('檔案格式不對');
+        if (!s || !Array.isArray(s.days) || !Array.isArray(s.expenses)) throw new Error('檔案格式不對');
         if (!confirm(`要用「${f.name}」覆蓋目前所有資料嗎？`)) return;
         state = normalize(s); ui.dayIdx = Math.min(ui.dayIdx, s.days.length - 1);
         save(); render(); toast('匯入完成');
@@ -1030,7 +950,6 @@
   const cloudDoc = (s) => ({
     v: 1,
     days: s.days, daysUpdatedAt: s.daysUpdatedAt,
-    checklist: s.checklist, checklistUpdatedAt: s.checklistUpdatedAt,
     rate: s.rate, rateUpdatedAt: s.rateUpdatedAt,
     expenses: s.expenses,
   });
@@ -1039,7 +958,6 @@
     if (!remote) return local;
     const out = clone(local);
     if ((remote.daysUpdatedAt || 0) > (local.daysUpdatedAt || 0)) { out.days = remote.days; out.daysUpdatedAt = remote.daysUpdatedAt; }
-    if ((remote.checklistUpdatedAt || 0) > (local.checklistUpdatedAt || 0)) { out.checklist = remote.checklist; out.checklistUpdatedAt = remote.checklistUpdatedAt; }
     if ((remote.rateUpdatedAt || 0) > (local.rateUpdatedAt || 0)) { out.rate = remote.rate; out.rateUpdatedAt = remote.rateUpdatedAt; }
     const byId = new Map();
     (local.expenses || []).forEach((e) => byId.set(e.id, e));
@@ -1164,7 +1082,7 @@
     return new TextDecoder().decode(bytes);
   }
   async function makeShareLink() {
-    const payload = { v: 1, days: state.days, checklist: state.checklist, rate: state.rate };
+    const payload = { v: 1, days: state.days, rate: state.rate };
     const json = JSON.stringify(payload);
     const base = `${location.origin}${location.pathname}`;
     let url = '';
@@ -1221,12 +1139,11 @@
         raw = await unpackData(long[1]);
       }
       const data = JSON.parse(raw);
-      if (!Array.isArray(data.days) || !Array.isArray(data.checklist)) throw new Error('連結內容不完整');
+      if (!Array.isArray(data.days)) throw new Error('連結內容不完整');
       if (!confirm('要匯入旅伴分享的行程與清單嗎？\n你自己的記帳不會被動到，但行程與清單會被覆蓋。')) return;
       state.days = data.days;
-      state.checklist = data.checklist;
       if (data.rate > 0) { state.rate = data.rate; touchRate(); }
-      touchDays(); touchChecklist();
+      touchDays();
       ui.dayIdx = pickToday();
       save(); render(); toast('已匯入旅伴的行程'); scheduleSync();
     } catch (err) { toast('連結讀不到：' + err.message); }
@@ -1254,7 +1171,7 @@
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + ui.view));
     document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.view === ui.view));
     $('#fab').hidden = ui.view !== 'money';
-    ({ trip: renderTrip, money: renderMoney, list: renderList, jp: renderJp, settings: renderSettings })[ui.view]();
+    ({ trip: renderTrip, money: renderMoney, jp: renderJp, settings: renderSettings })[ui.view]();
   }
   document.querySelectorAll('.tabbar button').forEach((b) => (b.onclick = () => { ui.view = b.dataset.view; render(); window.scrollTo(0, 0); }));
   $('#fab').onclick = () => editExpense('');

@@ -187,18 +187,12 @@ main { padding: 0 16px; max-width: 640px; margin: 0 auto; }
 .exp .amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
 .exp .amt small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
 
-/* 清單 */
 .progress { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 6px 0 14px; }
 .progress i { display: block; height: 100%; background: var(--ok); }
-.chk { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); }
-.sec-head + .chk { border-top: 0; }
-.chk input { width: 24px; height: 24px; accent-color: var(--ok); flex: 0 0 auto; }
-.chk .txt { flex: 1; }
-.chk.done .txt { color: var(--muted); text-decoration: line-through; }
-.chk.important:not(.done) .txt { color: var(--accent); font-weight: 600; }
+
 
 /* 設定 */
-#view-settings .card, #view-list .card, #view-jp .card { margin-bottom: 0; }
+#view-settings .card, #view-jp .card { margin-bottom: 0; }
 .room-box { text-align: center; padding: 6px 0 14px; }
 .room-code { font-size: 30px; font-weight: 800; letter-spacing: .28em; color: var(--accent); text-indent: .28em; }
 .room-meta { margin-top: 4px; color: var(--muted); font-size: 13px; }
